@@ -1,0 +1,8 @@
+{
+  "name": "typeslop",
+  "description": "A taste check for coding agents. Jev reads the diff of every edited file and sends the agent back once to fix the slop or say why the code should stay.",
+  "author": { "name": "Hannes Lipusch" },
+  "repository": "https://github.com/hanneslipusch/typeslop",
+  "license": "MIT",
+  "keywords": ["code-quality", "hooks", "llm-judge", "jev"]
+}

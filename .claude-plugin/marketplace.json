@@ -1,0 +1,14 @@
+{
+  "name": "typeslop",
+  "owner": {
+    "name": "Hannes Lipusch"
+  },
+  "plugins": [
+    {
+      "name": "typeslop",
+      "source": "./",
+      "description": "A taste check for coding agents."
+    }
+  ],
+  "description": "A taste check for coding agents"
+}

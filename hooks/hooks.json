@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "PostToolUse": [{ "matcher": "Write|Edit|MultiEdit", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/typeslop hook", "timeout": 10 }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/typeslop hook", "timeout": 120 }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/typeslop hook", "timeout": 120 }] }]
+  }
+}

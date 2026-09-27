@@ -1,0 +1,80 @@
+{
+  "clean": {
+    "type": "score",
+    "criteria": [
+      "needs rewrite",
+      "smelly",
+      "acceptable",
+      "clean",
+      "exemplary"
+    ],
+    "instructions": "A senior engineer who values the simplest correct design glances at this diff. How clean and simple is the code it adds or changes? Judge design and style only, not correctness. Clean code has deep modules with small interfaces (Ousterhout, A Philosophy of Software Design), no speculative generality (YAGNI, KISS), intention-revealing names (Clean Code), comments only for contracts, external gotchas and links, errors that fail loudly instead of invented fallbacks, precise types, no duplication (DRY), and no ceremony."
+  },
+  "comments": {
+    "type": "score",
+    "criteria": [
+      "none, or only contracts, external gotchas and links",
+      "a few one-line comments",
+      "noticeable explanation",
+      "heavy comments or long docstrings",
+      "an essay: more prose than code"
+    ],
+    "instructions": "How much comment and docstring prose does this diff add? Code that needs a paragraph to explain it should be simpler instead. A clean diff adds comments only for contracts, external gotchas and links."
+  },
+  "speculative abstraction": {
+    "type": "noul",
+    "instructions": "Does the diff add an abstraction, flag, option, compatibility layer or extension point that no current caller needs?"
+  },
+  "comments explain what": {
+    "type": "noul",
+    "instructions": "Do added comments restate what the code does or narrate its history, rather than explain why?"
+  },
+  "unclear naming": {
+    "type": "noul",
+    "instructions": "Are added names vague, misleading or generic, such as data, handle, manager, util, tmp?"
+  },
+  "swallowed errors": {
+    "type": "noul",
+    "instructions": "Does the diff swallow errors, catch broadly, or invent a fallback value where it should fail loudly?"
+  },
+  "loose typing": {
+    "type": "noul",
+    "instructions": "Does the diff use loose types such as any, object, untyped dicts, casts or ignore directives where a precise type is possible?"
+  },
+  "duplication": {
+    "type": "noul",
+    "instructions": "Does the diff duplicate logic that should exist once?"
+  },
+  "verbose": {
+    "type": "noul",
+    "instructions": "Could the added code do the same job at roughly half the size without losing clarity?"
+  },
+  "complex control flow": {
+    "type": "noul",
+    "instructions": "Is the control flow hard to follow: deep nesting, many branches, flags steering behaviour, or mutable state spread around?"
+  },
+  "noisy logging": {
+    "type": "noul",
+    "instructions": "Does the diff add logging or instrumentation that is noise rather than a signal someone will act on?"
+  },
+  "tautological test": {
+    "type": "noul",
+    "instructions": "Does an added test assert its own mocks or setup, so it would pass even if the real code were broken?"
+  },
+  "tests what types prove": {
+    "type": "noul",
+    "instructions": "Does an added test check something the type checker already guarantees?"
+  },
+  "booleans owe a type": {
+    "type": "noul",
+    "instructions": "Does the diff add several booleans, optional fields or string flags that must stay consistent with each other, where one enum or discriminated union would make the invalid combinations unrepresentable?"
+  },
+  "mocked integration": {
+    "type": "noul",
+    "instructions": "Does an added test mock the dependency the code under test exists to call, so the assertion only echoes the mock and proves nothing about real behaviour?"
+  },
+  "serial awaits": {
+    "type": "noul",
+    "instructions": "Does the diff await independent async calls one after another where they could run concurrently?"
+  }
+}

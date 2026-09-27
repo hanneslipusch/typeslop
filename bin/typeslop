@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""typeslop: a taste check on the code a coding agent writes.
+
+  typeslop check   judge this branch's changed files now
+  typeslop hook    Claude Code hook: reads the event on stdin
+
+Jev scores each changed file's diff. After an edit, the agent gets one note per file.
+At Stop, typeslop sends it back once with the findings, and it must simplify or say why not.
+Hook contract: https://code.claude.com/docs/en/hooks
+Jev API:       https://docs.typesafe.ai/api
+"""
+
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from functools import cache
+from pathlib import Path
+
+if sys.version_info < (3, 12):
+    sys.exit(f"typeslop needs Python 3.12 or later, found {sys.version.split()[0]}")
+
+BLOCK_BELOW, COMMENTS_FROM, SMELL_FROM = 2.5, 2.0, 0.85
+# Below this Jev confidence, comment prose is a nitpick the agent may keep, and a low score is no finding:
+# in eval/, unsure low scores flagged curated human code more often than agent slop.
+SURE_FROM = 0.6
+VERDICT = ("score", "level", "confidence", "comments", "comments_confidence", "smells")
+MIN_LINES, MAX_LINES = 8, 500
+CODE = (".py", ".ts", ".tsx", ".js", ".jsx", ".sh", ".go", ".rs", ".sql")
+GENERATED = (".gen.", "generated", "__snapshots__", "migrations/")
+LEVELS = ["needs rewrite", "smelly", "acceptable", "clean", "exemplary"]
+RUBRIC = json.loads((Path(__file__).resolve().parent.parent / "rubric.json").read_text())
+LOG = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "typeslop/log.jsonl"
+# Every host serves TypeSafe's own wire format; the first key found picks the host.
+PROVIDERS = [
+    ("TYPESAFE_API_KEY", "https://api.typesafe.ai", "jev-latest"),
+    ("AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh/typesafe", "typesafe-ai/jev"),
+    ("OPENROUTER_API_KEY", "https://openrouter.ai/api", "~typesafe/jev-latest"),
+]
+NO_KEY = "no API key: set TYPESAFE_API_KEY (console.typesafe.ai/keys), AI_GATEWAY_API_KEY or OPENROUTER_API_KEY"
+
+
+class JudgeError(Exception):
+    pass
+
+
+def provider() -> tuple[str, str, str] | None:
+    return next((p for p in PROVIDERS if os.environ.get(p[0])), None)
+
+
+def ask(file: str, diff: str, timeout: float, rubric: dict = RUBRIC) -> dict:
+    """Jev's raw reply to the rubric's questions about one diff: its answers and token usage."""
+    if (found := provider()) is None:
+        raise JudgeError(NO_KEY)
+    env, base, model = found
+    request = urllib.request.Request(
+        f"{base}/v1/systemone",
+        json.dumps({"model": model, "state": {"file": file, "diff": diff}, "questions": rubric}).encode(),
+        {"Authorization": f"Bearer {os.environ[env]}", "Content-Type": "application/json"},
+    )
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=deadline - time.monotonic()) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as e:
+            # A busy or briefly unavailable host is retried while the budget lasts.
+            if e.code in (429, 500, 502, 503, 529) and deadline - time.monotonic() > 1.5:
+                time.sleep(0.5)
+                continue
+            raise JudgeError(f"{base} answered {e.code}: {e.read()[:200].decode(errors='replace')}") from e
+        except (OSError, ValueError) as e:
+            raise JudgeError(f"{base} unreachable: {e}") from e
+
+
+def verdict_of(answers: dict) -> dict:
+    """Jev's raw answers reduced to what the gate and the log need."""
+    clean, comments = answers["clean"], answers["comments"]
+    return {
+        "score": round(clean["score"], 2),
+        "level": LEVELS[round(clean["score"])],
+        "confidence": round(clean["confidence"], 2),
+        "comments": round(comments["score"], 2),
+        "comments_confidence": round(comments["confidence"], 2),
+        "smells": sorted(([name, round(a["noul"], 2)] for name, a in answers.items()
+                          if a["type"] == "noul" and a["noul"] >= SMELL_FROM), key=lambda s: -s[1]),
+    }
+
+
+def findings_of(verdict: dict) -> list[tuple[bool, str, str]]:
+    """Why a verdict fails the gate as (sure, name, detail), most likely smell first; empty when it passes."""
+    out = [(True, name, f"{name} ({p:.2f}): {RUBRIC[name]['instructions']}") for name, p in verdict["smells"]]
+    if verdict["comments"] >= COMMENTS_FROM:
+        out.append((verdict["comments_confidence"] >= SURE_FROM, "too much comment prose",
+                    (f"too much comment prose ({verdict['comments']}/4, {verdict['comments_confidence']:.0%} sure): "
+                     "keep only contracts, gotchas and links")))
+    if verdict["score"] < BLOCK_BELOW and verdict["confidence"] >= SURE_FROM and not out:
+        out.append((True, "hard to read",
+                    f"hard to read ({verdict['score']}/4, {verdict['confidence']:.0%} sure): simplify"))
+    return out
+
+
+def describe(file: str, verdict: dict, findings: list) -> str:
+    """One file's findings. The agent and the user read this same text."""
+    lines = [f"{file}  {verdict['score']}/4 {verdict['level']}"]
+    lines += [f"  - {detail}" if sure else f"  - nitpick: {detail}" for sure, _, detail in findings]
+    return "\n".join(lines)
+
+
+def git(*args: str, cwd: str | Path) -> str | None:
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    return result.stdout if result.returncode in (0, 1) else None
+
+
+@cache
+def toplevel(cwd: str) -> str:
+    return (git("rev-parse", "--show-toplevel", cwd=cwd) or "").strip()
+
+
+@cache
+def merge_base(top: str) -> str:
+    return (git("merge-base", "HEAD", "origin/HEAD", cwd=top) or "").strip() or "HEAD"
+
+
+def diff_for(path: str) -> dict | None:
+    """The file's diff against its own repo's merge-base, or None when it is not ours to judge."""
+    if not path.endswith(CODE) or any(g in path for g in GENERATED) or not os.path.isfile(path):
+        return None
+    # The file's own repo, not the session's: a linked worktree inside the main checkout
+    # would otherwise look untracked and be judged whole.
+    top = toplevel(os.path.dirname(os.path.abspath(path)))
+    if not top:
+        return None
+    file = os.path.relpath(os.path.realpath(path), os.path.realpath(top))
+    if git("ls-files", "--error-unmatch", "--", file, cwd=top):
+        diff = git("diff", merge_base(top), "--", file, cwd=top)
+    elif git("check-ignore", "--", file, cwd=top):
+        return None  # An ignored file is often local config with secrets; never send it.
+    else:
+        diff = git("diff", "--no-index", "--", "/dev/null", file, cwd=top)
+    lines = (diff or "").count("\n")
+    if not MIN_LINES <= lines <= MAX_LINES:
+        return None
+    return {"repo": top, "file": file, "diff": diff, "lines": lines,
+            "hash": hashlib.sha1(f"{file}{diff}".encode()).hexdigest()[:16]}
+
+
+def read_jsonl(path: str | Path) -> list[dict]:
+    return [json.loads(line) for line in Path(path).read_text().split("\n") if line.strip()] \
+        if os.path.isfile(path) else []
+
+
+def append_jsonl(path: Path, records: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.writelines(json.dumps(r) + "\n" for r in records)
+
+
+def judge_all(diffs: list[dict], timeout: float) -> dict[str, dict | JudgeError]:
+    def one(d: dict) -> dict | JudgeError:
+        try:
+            return verdict_of(ask(d["file"], d["diff"], timeout)["answers"])
+        except JudgeError as e:
+            return e
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip((d["hash"] for d in diffs), pool.map(one, diffs), strict=True))
+
+
+def edited_paths(event: dict) -> list[str]:
+    if event["hook_event_name"] == "PostToolUse":
+        return [event.get("tool_input", {}).get("file_path", "")]
+    # Only files this agent's own transcript edited: parallel workers never answer for each other.
+    # Claude Code can leave a torn record in its transcript, one cut off mid-write; it is skipped.
+    path = event.get("agent_transcript_path") or event.get("transcript_path") or ""
+    paths = set()
+    for line in Path(path).read_text().split("\n") if os.path.isfile(path) else []:
+        try:
+            record = json.loads(line) if line.strip() else {}
+        except ValueError:
+            continue
+        if record.get("type") == "assistant":
+            paths |= {block["input"].get("file_path", "") for block in record.get("message", {}).get("content", [])
+                      if isinstance(block, dict) and block.get("type") == "tool_use"
+                      and block.get("name") in ("Write", "Edit", "MultiEdit")}
+    return sorted(paths)
+
+
+def decide(event: dict, diffs: list[dict], memory: list[dict], verdicts: dict) -> tuple[list[dict], dict | None]:
+    """Log records plus the hook output, from plain data. Pure: no git, no network, no clock."""
+    kind = event["hook_event_name"]
+    edit = kind == "PostToolUse"
+    session = event.get("session_id", "")
+    after_bounce = bool(event.get("stop_hook_active"))
+    last = {r["hash"]: r for r in memory if "confidence" in r}
+    stop_seen = {r["hash"] for r in memory if "confidence" in r and r["event"] != "PostToolUse"}
+    noted = {r["file"] for r in memory if r.get("noted") and r.get("session") == session}
+    warned = any(r.get("warned") and r.get("session") == session for r in memory)
+    records, flagged, errors = [], [], []
+    for d in diffs:
+        base = {"event": kind, "session": session, "repo": d["repo"], "file": d["file"], "hash": d["hash"], "lines": d["lines"]}
+        if d["hash"] in verdicts:
+            verdict = verdicts[d["hash"]]
+            if isinstance(verdict, JudgeError):
+                errors.append(str(verdict))
+                records.append({**base, "skip": str(verdict)})
+                continue
+        elif d["hash"] in last and not edit and (after_bounce or d["hash"] not in stop_seen):
+            verdict = {k: last[d["hash"]][k] for k in VERDICT}
+        else:
+            continue
+        findings = findings_of(verdict)
+        record = {**base, **verdict,
+                  "blocked": bool(findings) and not edit and not after_bounce,
+                  "noted": bool(findings) and edit and d["file"] not in noted}
+        if after_bounce:
+            record["justification"] = event.get("last_assistant_message", "")[:400]
+        records.append(record)
+        if record["blocked"] or record["noted"]:
+            flagged.append(describe(d["file"], verdict, findings))
+    output: dict = {}
+    notices = []
+    if errors and not warned:
+        notices.append(f"typeslop could not judge: {errors[0]}")
+        records.append({"event": kind, "session": session, "warned": True})
+    body = "\n".join(flagged)
+    if flagged and edit:
+        # additionalContext never reaches the screen, so the user gets the same text as a systemMessage.
+        note = f"typeslop: {body}\nSimplify it before building on it. Ignore this if the file is still half-written."
+        output["hookSpecificOutput"] = {"hookEventName": "PostToolUse", "additionalContext": note}
+        notices.append(note)
+    elif flagged:
+        # A Stop block's reason shows in the transcript: the user reads what the agent reads.
+        output.update(decision="block", reason=f"typeslop flagged {len(flagged)} {'file' if len(flagged) == 1 else 'files'}\n\n{body}\n\n"
+                      "Fix each finding. For a nitpick, fix it or say in one line why the code should stay.")
+    if notices:
+        output["systemMessage"] = "\n".join(notices)
+    return records, output or None
+
+
+def hook() -> None:
+    event = json.load(sys.stdin)
+    event.setdefault("hook_event_name", "Stop")
+    diffs = [d for d in map(diff_for, edited_paths(event)) if d]
+    memory = read_jsonl(LOG)
+    # Each diff is judged once; a stop reuses the score its edit already paid for.
+    known = {r["hash"] for r in memory if "confidence" in r}
+    verdicts = judge_all([d for d in diffs if d["hash"] not in known], timeout=5 if event["hook_event_name"] == "PostToolUse" else 20)
+    records, output = decide(event, diffs, memory, verdicts)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    append_jsonl(LOG, [{"ts": stamp, **r} for r in records])
+    if output:
+        print(json.dumps(output))
+
+
+def check() -> int:
+    top = toplevel(os.getcwd())
+    if not top:
+        print("typeslop check: not inside a git repository")
+        return 1
+    base = merge_base(top)
+    changed = (git("diff", "--name-only", "-z", base, cwd=top) or "") + (git("ls-files", "-z", "--others", "--exclude-standard", cwd=top) or "")
+    diffs = [d for d in (diff_for(os.path.join(top, f)) for f in sorted(set(changed.split("\0")) - {""})) if d]
+    if not diffs:
+        print(f"typeslop check: no code changes between {base[:10]} and the working tree")
+        return 0
+    if provider() is None:
+        print(f"typeslop check: {NO_KEY}")
+        return 1
+    verdicts = judge_all(diffs, timeout=20)
+    failed = 0
+    for d in diffs:
+        verdict = verdicts[d["hash"]]
+        if isinstance(verdict, JudgeError):
+            failed += 1
+            print(f"✗ {d['file']}  {verdict}")
+            continue
+        findings = findings_of(verdict)
+        print(f"⚑ {describe(d['file'], verdict, findings)}" if findings else f"✓ {d['file']}  {verdict['score']}/4 {verdict['level']}")
+    return 1 if failed else 0
+
+
+def main() -> int:
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
+    if command == "check":
+        return check()
+    if command == "hook":
+        try:
+            hook()
+        except Exception as e:  # noqa: BLE001 - a typeslop bug must never stop the agent.
+            print(json.dumps({"systemMessage": f"typeslop crashed: {e!r}"}))
+        return 0
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
