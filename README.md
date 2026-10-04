@@ -25,8 +25,8 @@ export TYPESAFE_API_KEY=…   # or OPENROUTER_API_KEY, or AI_GATEWAY_API_KEY for
 Then in Claude Code:
 
 ```
-/plugin marketplace add hanneslipusch/typeslop
-/plugin install typeslop@typeslop
+/plugin marketplace add hanneslipusch/agents
+/plugin install typeslop@hanneslipusch
 ```
 
 To judge your current branch, ask Claude to run `typeslop check`.
