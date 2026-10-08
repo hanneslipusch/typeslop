@@ -2,7 +2,6 @@
 
 Cached answers are keyed by (rubric, file, diff), so re-reporting costs nothing and only a
 changed rubric pays for new calls. Every paid call appends its token usage to usage.jsonl.
-Price: https://docs.typesafe.ai ($0.042 per million input tokens).
 """
 
 import hashlib
@@ -15,7 +14,6 @@ from pathlib import Path
 
 DATA = Path.home() / ".cache/typeslop-eval"
 CACHE, USAGE = DATA / "cache.jsonl", DATA / "usage.jsonl"
-PRICE_PER_INPUT_TOKEN = 0.042e-6
 
 _loader = importlib.machinery.SourceFileLoader("typeslop", str(Path(__file__).resolve().parent.parent / "bin/typeslop"))
 typeslop = importlib.util.module_from_spec(importlib.util.spec_from_loader("typeslop", _loader))
@@ -51,10 +49,3 @@ def ask_all(cases: list[dict], rubric: dict) -> list[dict]:
                     _cache[k] = answers
                     typeslop.append_jsonl(CACHE, [{"key": k, "answers": answers}])
     return [_cache[k] for k in keys]
-
-
-def spent() -> tuple[int, int, float]:
-    """Paid calls, input tokens and dollars logged so far."""
-    calls = typeslop.read_jsonl(USAGE)
-    tokens = sum(c["input_tokens"] for c in calls)
-    return len(calls), tokens, tokens * PRICE_PER_INPUT_TOKEN

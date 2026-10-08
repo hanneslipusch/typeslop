@@ -34,13 +34,14 @@ def run(kind, memory, verdicts, **event):
 
 
 def test_a_low_score_notes_once_blocks_once_and_never_twice():
-    edit, note = run("PostToolUse", [], {"h1": LOW})
+    edit, note = run("PostToolUse", [], {"h1": {**LOW, "tokens": 900}})
     assert "slop.py  1.2/4 needs rewrite\n  - verbose (0.90): " in note["hookSpecificOutput"]["additionalContext"]
     assert note["systemMessage"] == note["hookSpecificOutput"]["additionalContext"], "the user must see what the agent sees"
     assert run("PostToolUse", edit, {"h1": LOW})[1] == {}, "a note repeats on every edit"
 
     stop, block = run("Stop", edit, {})
     assert block["decision"] == "block", "a stop must reuse the edit's score, not re-judge"
+    assert "tokens" not in stop[0], "a reused score was counted as paid twice"
     assert run("Stop", edit + stop, {}) == ([], {}), "a stop judged the same diff twice"
 
     after, output = run("Stop", edit + stop, {}, stop_hook_active=True, last_assistant_message="It is a fixture.")
@@ -130,3 +131,16 @@ def test_the_hook_never_crashes_on_this_machines_transcripts(tmp_path):
     for t in transcripts:
         output = hook({"hook_event_name": "Stop", "session_id": t.stem, "transcript_path": str(t)}, tmp_path)
         assert "crashed" not in output.get("systemMessage", ""), f"{t}: {output}"
+
+
+def test_cost_counts_paid_judgments_and_excludes_reused_scores(tmp_path):
+    def cost():
+        return subprocess.run([sys.executable, BIN, "cost"], capture_output=True, text=True,
+                              env={**os.environ, "XDG_STATE_HOME": str(tmp_path)}, check=True).stdout
+
+    assert cost() == "0 judgments, 0 input tokens, $0.0000\n"
+    edit, _ = run("PostToolUse", [], {"h1": {**LOW, "tokens": 9000}})
+    stop, _ = run("Stop", edit, {})
+    typeslop.append_jsonl(tmp_path / "typeslop/log.jsonl",
+                          edit + stop + [{"event": "check", "tokens": 1000}, {"warned": True}])
+    assert cost() == "2 judgments, 10,000 input tokens, $0.0004\n"

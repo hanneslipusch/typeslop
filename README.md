@@ -44,7 +44,7 @@ ship it.
 ## Privacy and cost
 
 typeslop sends each edited file's diff to Jev, and a diff can contain secrets. A judgment
-costs about $0.0002.
+costs about $0.0002. `typeslop cost` adds up what yours have cost.
 
 ## License
 

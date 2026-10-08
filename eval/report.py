@@ -11,7 +11,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from jev import DATA, ask_all, spent, typeslop
+from jev import DATA, USAGE, ask_all, typeslop
 
 rubric_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "rubric.json"
 rubric = json.loads(rubric_path.read_text())
@@ -32,5 +32,5 @@ for name, cases in sets.items():
     top = Counter(n for f in findings for _, n, _ in f).most_common(3)
     print(f"{name:<22} {len(cases):>5} {flagged / len(cases):>8.0%} {sure / len(cases):>6.0%}"
           f" {sum(v['score'] for v in verdicts) / len(cases):>11.2f}   {', '.join(f'{n} {c}' for n, c in top)}")
-calls, tokens, dollars = spent()
+calls, tokens, dollars = typeslop.cost([r["input_tokens"] for r in typeslop.read_jsonl(USAGE)])
 print(f"\nJev spend so far: {calls} calls, {tokens:,} input tokens, ${dollars:.2f}")
