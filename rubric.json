@@ -13,13 +13,13 @@
   "comments": {
     "type": "score",
     "criteria": [
-      "only contracts, or no comments",
-      "a few one-line comments beyond contracts",
-      "comments that narrate what the code does",
-      "paragraphs explaining our own code",
+      "none, or only contracts, external gotchas and links",
+      "a few one-line comments",
+      "noticeable explanation",
+      "heavy comments beyond contracts",
       "an essay: more prose than code"
     ],
-    "instructions": "How much comment prose does this diff add beyond contracts? A contract is a short doc comment on a public name, a unit, what null means, an external gotcha or a link. Code that needs a paragraph to explain it should be simpler instead."
+    "instructions": "How much comment and docstring prose does this diff add? Code that needs a paragraph to explain it should be simpler instead. A clean diff adds comments only for contracts, external gotchas and links. A contract is a short doc comment on a public name, a unit or what null means."
   },
   "speculative abstraction": {
     "type": "noul",
