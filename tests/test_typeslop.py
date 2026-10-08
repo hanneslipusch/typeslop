@@ -131,3 +131,16 @@ def test_the_hook_never_crashes_on_this_machines_transcripts(tmp_path):
     for t in transcripts:
         output = hook({"hook_event_name": "Stop", "session_id": t.stem, "transcript_path": str(t)}, tmp_path)
         assert "crashed" not in output.get("systemMessage", ""), f"{t}: {output}"
+
+
+def test_cost_counts_paid_judgments_and_excludes_reused_scores(tmp_path):
+    def cost():
+        return subprocess.run([sys.executable, BIN, "cost"], capture_output=True, text=True,
+                              env={**os.environ, "XDG_STATE_HOME": str(tmp_path)}, check=True).stdout
+
+    assert cost() == "0 judgments, 0 input tokens, $0.0000\n"
+    edit, _ = run("PostToolUse", [], {"h1": {**LOW, "tokens": 9000}})
+    stop, _ = run("Stop", edit, {})
+    typeslop.append_jsonl(tmp_path / "typeslop/log.jsonl",
+                          edit + stop + [{"event": "check", "tokens": 1000}, {"warned": True}])
+    assert cost() == "2 judgments, 10,000 input tokens, $0.0004\n"
