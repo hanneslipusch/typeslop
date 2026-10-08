@@ -1,8 +1,8 @@
 """The decision on plain data, the diff on real git, and the whole hook on real transcripts.
 
-Each test guards a failure seen in production: an agent sent back twice for one file; a stop that
-re-paid for a score its edit already had; a note repeated on every edit; a dead key that
-looked like a quiet hook; a linked worktree judged as one untracked whole file; scratch
+Each test guards a failure seen in production: an agent sent back twice for one file, or
+again for a finding it already answered; a stop that re-paid for a score its edit already
+had; a note repeated on every edit; a dead key that looked like a quiet hook; a linked worktree judged as one untracked whole file; scratch
 files outside any repo judged against whatever repo the shell stood in; a torn transcript
 record that crashed every hook for the rest of its session.
 """
@@ -47,6 +47,14 @@ def test_a_low_score_notes_once_blocks_once_and_never_twice():
     after, output = run("Stop", edit + stop, {}, stop_hook_active=True, last_assistant_message="It is a fixture.")
     assert "decision" not in output
     assert after[0]["justification"] == "It is a fixture."
+
+
+def test_a_file_is_blocked_again_only_for_a_new_finding():
+    def stop(memory, version, verdict):
+        return typeslop.decide({"hook_event_name": "Stop", "session_id": "s"}, [{**DIFF, "hash": version}], memory, {version: verdict})
+    first, _ = stop([], "h1", LOW)
+    assert stop(first, "h2", LOW)[1] is None, "the same finding blocked the file again"
+    assert stop(first, "h3", {**LOW, "smells": [["loose typing", 0.9]]})[1]["decision"] == "block", "a new finding went through"
 
 
 def test_clean_code_passes_and_comment_prose_alone_flags():

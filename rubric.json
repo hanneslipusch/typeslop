@@ -16,10 +16,10 @@
       "none, or only contracts, external gotchas and links",
       "a few one-line comments",
       "noticeable explanation",
-      "heavy comments or long docstrings",
+      "heavy comments beyond contracts",
       "an essay: more prose than code"
     ],
-    "instructions": "How much comment and docstring prose does this diff add? Code that needs a paragraph to explain it should be simpler instead. A clean diff adds comments only for contracts, external gotchas and links."
+    "instructions": "How much comment and docstring prose does this diff add? Code that needs a paragraph to explain it should be simpler instead. A clean diff adds comments only for contracts, external gotchas and links. A contract is a short doc comment on a public name, a unit or what null means."
   },
   "speculative abstraction": {
     "type": "noul",
