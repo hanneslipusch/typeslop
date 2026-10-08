@@ -49,10 +49,3 @@ def ask_all(cases: list[dict], rubric: dict) -> list[dict]:
                     _cache[k] = answers
                     typeslop.append_jsonl(CACHE, [{"key": k, "answers": answers}])
     return [_cache[k] for k in keys]
-
-
-def spent() -> tuple[int, int, float]:
-    """Paid calls, input tokens and dollars logged so far."""
-    calls = typeslop.read_jsonl(USAGE)
-    tokens = sum(c["input_tokens"] for c in calls)
-    return len(calls), tokens, tokens * typeslop.PRICE_PER_INPUT_TOKEN

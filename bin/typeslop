@@ -292,10 +292,9 @@ def check() -> int:
     return 1 if failed else 0
 
 
-def cost() -> int:
-    tokens = [r["tokens"] for r in read_jsonl(LOG) if "tokens" in r]
-    print(f"{len(tokens)} judgments, {sum(tokens):,} input tokens, ${sum(tokens) * PRICE_PER_INPUT_TOKEN:.4f}")
-    return 0
+def cost(tokens: list[int]) -> tuple[int, int, float]:
+    total = sum(tokens)
+    return len(tokens), total, total * PRICE_PER_INPUT_TOKEN
 
 
 def main() -> int:
@@ -303,7 +302,9 @@ def main() -> int:
     if command == "check":
         return check()
     if command == "cost":
-        return cost()
+        calls, tokens, dollars = cost([r["tokens"] for r in read_jsonl(LOG) if "tokens" in r])
+        print(f"{calls} judgments, {tokens:,} input tokens, ${dollars:.4f}")
+        return 0
     if command == "hook":
         try:
             hook()
