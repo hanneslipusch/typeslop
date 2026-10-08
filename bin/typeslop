@@ -2,6 +2,7 @@
 """typeslop: a taste check on the code a coding agent writes.
 
   typeslop check   judge this branch's changed files now
+  typeslop cost    what Jev has cost so far, from the log
   typeslop hook    Claude Code hook: reads the event on stdin
 
 Jev scores each changed file's diff. After an edit, the agent gets one note per file.
@@ -43,6 +44,7 @@ PROVIDERS = [
     ("AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh/typesafe", "typesafe-ai/jev"),
     ("OPENROUTER_API_KEY", "https://openrouter.ai/api", "~typesafe/jev-latest"),
 ]
+PRICE_PER_INPUT_TOKEN = 0.042e-6  # Output tokens are free: https://docs.typesafe.ai/models
 NO_KEY = "no API key: set TYPESAFE_API_KEY (console.typesafe.ai/keys), AI_GATEWAY_API_KEY or OPENROUTER_API_KEY"
 
 
@@ -165,7 +167,8 @@ def append_jsonl(path: Path, records: list[dict]) -> None:
 def judge_all(diffs: list[dict], timeout: float) -> dict[str, dict | JudgeError]:
     def one(d: dict) -> dict | JudgeError:
         try:
-            return verdict_of(ask(d["file"], d["diff"], timeout)["answers"])
+            reply = ask(d["file"], d["diff"], timeout)
+            return {**verdict_of(reply["answers"]), "tokens": reply["usage"]["input_tokens"]}
         except JudgeError as e:
             return e
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -243,6 +246,10 @@ def decide(event: dict, diffs: list[dict], memory: list[dict], verdicts: dict) -
     return records, output or None
 
 
+def now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def hook() -> None:
     event = json.load(sys.stdin)
     event.setdefault("hook_event_name", "Stop")
@@ -252,8 +259,7 @@ def hook() -> None:
     known = {r["hash"] for r in memory if "confidence" in r}
     verdicts = judge_all([d for d in diffs if d["hash"] not in known], timeout=5 if event["hook_event_name"] == "PostToolUse" else 20)
     records, output = decide(event, diffs, memory, verdicts)
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    append_jsonl(LOG, [{"ts": stamp, **r} for r in records])
+    append_jsonl(LOG, [{"ts": now(), **r} for r in records])
     if output:
         print(json.dumps(output))
 
@@ -273,6 +279,7 @@ def check() -> int:
         print(f"typeslop check: {NO_KEY}")
         return 1
     verdicts = judge_all(diffs, timeout=20)
+    append_jsonl(LOG, [{"ts": now(), "event": "check", "tokens": v["tokens"]} for v in verdicts.values() if isinstance(v, dict)])
     failed = 0
     for d in diffs:
         verdict = verdicts[d["hash"]]
@@ -285,10 +292,18 @@ def check() -> int:
     return 1 if failed else 0
 
 
+def cost() -> int:
+    tokens = [r["tokens"] for r in read_jsonl(LOG) if "tokens" in r]
+    print(f"{len(tokens)} judgments, {sum(tokens):,} input tokens, ${sum(tokens) * PRICE_PER_INPUT_TOKEN:.4f}")
+    return 0
+
+
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "check":
         return check()
+    if command == "cost":
+        return cost()
     if command == "hook":
         try:
             hook()

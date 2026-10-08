@@ -34,13 +34,14 @@ def run(kind, memory, verdicts, **event):
 
 
 def test_a_low_score_notes_once_blocks_once_and_never_twice():
-    edit, note = run("PostToolUse", [], {"h1": LOW})
+    edit, note = run("PostToolUse", [], {"h1": {**LOW, "tokens": 900}})
     assert "slop.py  1.2/4 needs rewrite\n  - verbose (0.90): " in note["hookSpecificOutput"]["additionalContext"]
     assert note["systemMessage"] == note["hookSpecificOutput"]["additionalContext"], "the user must see what the agent sees"
     assert run("PostToolUse", edit, {"h1": LOW})[1] == {}, "a note repeats on every edit"
 
     stop, block = run("Stop", edit, {})
     assert block["decision"] == "block", "a stop must reuse the edit's score, not re-judge"
+    assert "tokens" not in stop[0], "a reused score was counted as paid twice"
     assert run("Stop", edit + stop, {}) == ([], {}), "a stop judged the same diff twice"
 
     after, output = run("Stop", edit + stop, {}, stop_hook_active=True, last_assistant_message="It is a fixture.")
