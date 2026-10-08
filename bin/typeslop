@@ -203,6 +203,8 @@ def decide(event: dict, diffs: list[dict], memory: list[dict], verdicts: dict) -
     last = {r["hash"]: r for r in memory if "confidence" in r}
     stop_seen = {r["hash"] for r in memory if "confidence" in r and r["event"] != "PostToolUse"}
     noted = {r["file"] for r in memory if r.get("noted") and r.get("session") == session}
+    blocked_for = {(r["file"], name) for r in memory if r.get("blocked") and r.get("session") == session
+                   for _, name, _ in findings_of(r)}
     warned = any(r.get("warned") and r.get("session") == session for r in memory)
     records, flagged, errors = [], [], []
     for d in diffs:
@@ -219,7 +221,7 @@ def decide(event: dict, diffs: list[dict], memory: list[dict], verdicts: dict) -
             continue
         findings = findings_of(verdict)
         record = {**base, **verdict,
-                  "blocked": bool(findings) and not edit and not after_bounce,
+                  "blocked": any((d["file"], name) not in blocked_for for _, name, _ in findings) and not edit and not after_bounce,
                   "noted": bool(findings) and edit and d["file"] not in noted}
         if after_bounce:
             record["justification"] = event.get("last_assistant_message", "")[:400]
