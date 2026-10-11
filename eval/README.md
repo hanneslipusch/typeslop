@@ -1,20 +1,21 @@
 # eval
 
-How often typeslop would send an agent back, on code we trust and on code we expect to be
-slop. Run it before you change `rubric.json` or the thresholds.
+How often typeslop's findings are right. Run it before you change `rubric.json` or the
+thresholds.
 
-| set | what it is | should |
-|---|---|---|
-| `good` | 150 diffs from ten hand-maintained repos, before November 2022 | rarely flag |
-| `slop` | about 200 diffs from unreviewed Claude Code commits | often flag |
-| `smellbench planted` / `repaired` | [SmellBench](https://huggingface.co/datasets/critical88/SmellBench) smells and their fixes | often / rarely flag |
+[`labels.jsonl`](labels.jsonl) marks 207 diffs as slop or not, with the smells and a reason.
+A strict reviewer labelled each one before seeing Jev's answer. The diffs come from two sets:
+
+| set | what it is |
+|---|---|
+| `good` | 150 diffs from ten hand-maintained repos, before November 2022 |
+| `slop` | about 200 diffs from unreviewed Claude Code commits |
 
 ```
 uv run eval/build.py good          # once; sets live in ~/.cache/typeslop-eval
 uv run eval/build.py slop          # about 30 minutes, GitHub rate limits
-uv run eval/build.py smellbench
-uv run eval/report.py [rubric.json]   # needs a Jev key; about $0.10 per new rubric, cached after
+uv run eval/report.py [rubric.json]   # needs a Jev key; about $0.02 per new rubric, cached after
 ```
 
-Rewording the questions with GEPA found nothing beyond noise. The labels are the limit:
-much unreviewed agent code is fine.
+Who wrote the code says little: about a fifth of `good` and a third of `slop` is slop. The
+`slop` set comes from a GitHub search, so a fresh build picks other commits than the labels.

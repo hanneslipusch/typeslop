@@ -31,6 +31,16 @@ Then in Claude Code:
 
 To judge your current branch, ask Claude to run `typeslop check`.
 
+Codex, `sed` and other tools write code the hook never sees. To judge every author's code,
+run the check before each push:
+
+```
+printf '#!/bin/sh\nexec typeslop check\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+```
+
+The push fails once per finding. Fix it, or push again to keep the code. Outside Claude
+Code, put `bin/typeslop` from a clone of this repo on your `PATH`.
+
 ## How it works
 
 - After an edit, the agent gets a note if the file smells. You see the same note.
@@ -44,7 +54,7 @@ ship it.
 ## Privacy and cost
 
 typeslop sends each edited file's diff to Jev, and a diff can contain secrets. A judgment
-costs about $0.0002. `typeslop cost` adds up what yours have cost.
+costs about $0.0001. `typeslop cost` adds up what yours have cost.
 
 ## License
 

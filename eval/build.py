@@ -2,18 +2,15 @@
 
   uv run eval/build.py good         # curated human code, before ChatGPT
   uv run eval/build.py slop         # unreviewed Claude Code commits (slow: GitHub rate limits)
-  uv run eval/build.py smellbench   # planted textbook smells and their human repairs
 
 Each line is {"set", "source", "file", "diff"}, shaped like the hook's `git diff`.
 """
 
 import json
 import random
-import re
 import subprocess
 import sys
 import time
-import urllib.request
 
 from jev import DATA, typeslop
 
@@ -111,34 +108,13 @@ def slop() -> list[dict]:
     return cases
 
 
-def smellbench() -> list[dict]:
-    """critical88/SmellBench (Apache-2.0): each file an agent's planted smell touched, and its repair."""
-    url = "https://huggingface.co/datasets/critical88/SmellBench/resolve/main/smell_codes.json"
-    with urllib.request.urlopen(url) as response:
-        rows = json.load(response)
-
-    def per_file(diff):
-        parts = re.split(r"(?m)^(?=diff --git )", diff)
-        return {re.match(r"diff --git a/(\S+)", p).group(1): p for p in parts if p.startswith("diff --git")}
-
-    cases = []
-    for row in rows:
-        planted, repaired = per_file(row["smell_content"]), per_file(row["gt_content"])
-        for path in sorted(planted.keys() & repaired.keys()):
-            if path.endswith(CODE) and fits(planted[path]) and fits(repaired[path]):
-                source = f"{row['instance_id']} ({row['type']})"
-                cases.append({"set": "smellbench planted", "source": source, "file": path, "diff": planted[path]})
-                cases.append({"set": "smellbench repaired", "source": source, "file": path, "diff": repaired[path]})
-    return cases
-
-
 if __name__ == "__main__":
     random.seed(7)
     name = sys.argv[1] if len(sys.argv) > 1 else ""
-    build = {"good": good, "slop": slop, "smellbench": smellbench}.get(name)
+    build = {"good": good, "slop": slop}.get(name)
     if build is None:
         sys.exit(__doc__)
     SETS.mkdir(parents=True, exist_ok=True)
-    cases = [{"set": name, **c} if "set" not in c else c for c in build()]
+    cases = [{"set": name, **c} for c in build()]
     (SETS / f"{name}.jsonl").write_text("".join(json.dumps(c) + "\n" for c in cases))
     print(f"{len(cases)} diffs → {SETS / name}.jsonl")

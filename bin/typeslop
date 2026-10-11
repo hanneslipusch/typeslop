@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """typeslop: a taste check on the code a coding agent writes.
 
-  typeslop check   judge this branch's changed files now
+  typeslop check   judge this branch's changed files; exits 1 on a finding it has not shown yet
   typeslop cost    what Jev has cost so far, from the log
   typeslop hook    Claude Code hook: reads the event on stdin
 
@@ -31,11 +31,10 @@ BLOCK_BELOW, COMMENTS_FROM, SMELL_FROM = 2.5, 2.0, 0.85
 # Below this Jev confidence, comment prose is a nitpick the agent may keep, and a low score is no finding:
 # in eval/, unsure low scores flagged curated human code more often than agent slop.
 SURE_FROM = 0.6
-VERDICT = ("score", "level", "confidence", "comments", "comments_confidence", "smells")
+VERDICT = ("score", "confidence", "comments", "comments_confidence", "smells")
 MIN_LINES, MAX_LINES = 8, 500
 CODE = (".py", ".ts", ".tsx", ".js", ".jsx", ".sh", ".go", ".rs", ".sql")
 GENERATED = (".gen.", "generated", "__snapshots__", "migrations/")
-LEVELS = ["needs rewrite", "smelly", "acceptable", "clean", "exemplary"]
 RUBRIC = json.loads((Path(__file__).resolve().parent.parent / "rubric.json").read_text())
 LOG = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "typeslop/log.jsonl"
 # Every host serves TypeSafe's own wire format; the first key found picks the host.
@@ -86,7 +85,6 @@ def verdict_of(answers: dict) -> dict:
     clean, comments = answers["clean"], answers["comments"]
     return {
         "score": round(clean["score"], 2),
-        "level": LEVELS[round(clean["score"])],
         "confidence": round(clean["confidence"], 2),
         "comments": round(comments["score"], 2),
         "comments_confidence": round(comments["confidence"], 2),
@@ -110,7 +108,7 @@ def findings_of(verdict: dict) -> list[tuple[bool, str, str]]:
 
 def describe(file: str, verdict: dict, findings: list) -> str:
     """One file's findings. The agent and the user read this same text."""
-    lines = [f"{file}  {verdict['score']}/4 {verdict['level']}"]
+    lines = [f"{file}  {verdict['score']}/4"]
     lines += [f"  - {detail}" if sure else f"  - nitpick: {detail}" for sure, _, detail in findings]
     return "\n".join(lines)
 
@@ -201,7 +199,7 @@ def decide(event: dict, diffs: list[dict], memory: list[dict], verdicts: dict) -
     session = event.get("session_id", "")
     after_bounce = bool(event.get("stop_hook_active"))
     last = {r["hash"]: r for r in memory if "confidence" in r}
-    stop_seen = {r["hash"] for r in memory if "confidence" in r and r["event"] != "PostToolUse"}
+    stop_seen = {r["hash"] for r in memory if "confidence" in r and r["event"] in ("Stop", "SubagentStop")}
     noted = {r["file"] for r in memory if r.get("noted") and r.get("session") == session}
     blocked_for = {(r["file"], name) for r in memory if r.get("blocked") and r.get("session") == session
                    for _, name, _ in findings_of(r)}
@@ -272,6 +270,8 @@ def check() -> int:
         print("typeslop check: not inside a git repository")
         return 1
     base = merge_base(top)
+    if base == "HEAD":
+        print("typeslop check: no origin/HEAD, so committed changes are not judged; `git remote set-head origin --auto` sets it")
     changed = (git("diff", "--name-only", "-z", base, cwd=top) or "") + (git("ls-files", "-z", "--others", "--exclude-standard", cwd=top) or "")
     diffs = [d for d in (diff_for(os.path.join(top, f)) for f in sorted(set(changed.split("\0")) - {""})) if d]
     if not diffs:
@@ -279,19 +279,28 @@ def check() -> int:
         return 0
     if provider() is None:
         print(f"typeslop check: {NO_KEY}")
-        return 1
-    verdicts = judge_all(diffs, timeout=20)
-    append_jsonl(LOG, [{"ts": now(), "event": "check", "tokens": v["tokens"]} for v in verdicts.values() if isinstance(v, dict)])
-    failed = 0
+        return 0
+    memory = read_jsonl(LOG)
+    last = {r["hash"]: r for r in memory if "confidence" in r}
+    kept = {(r["repo"], r["file"], name) for r in memory if r.get("event") == "check" and r.get("blocked")
+            for _, name, _ in findings_of(r)}
+    paid = judge_all([d for d in diffs if d["hash"] not in last], timeout=20)
+    records = []
     for d in diffs:
-        verdict = verdicts[d["hash"]]
+        verdict = paid.get(d["hash"]) or {k: last[d["hash"]][k] for k in VERDICT}
         if isinstance(verdict, JudgeError):
-            failed += 1
             print(f"✗ {d['file']}  {verdict}")
             continue
         findings = findings_of(verdict)
-        print(f"⚑ {describe(d['file'], verdict, findings)}" if findings else f"✓ {d['file']}  {verdict['score']}/4 {verdict['level']}")
-    return 1 if failed else 0
+        blocked = any(sure and (top, d["file"], name) not in kept for sure, name, _ in findings)
+        records.append({"ts": now(), "event": "check", "repo": top, "file": d["file"], "hash": d["hash"],
+                        "lines": d["lines"], **verdict, "blocked": blocked})
+        print(f"⚑ {describe(d['file'], verdict, findings)}" if findings else f"✓ {d['file']}  {verdict['score']}/4")
+    append_jsonl(LOG, records)
+    if not any(r["blocked"] for r in records):
+        return 0
+    print("\nFix each finding, or say why the code stays: the next check lets a finding it already showed through.")
+    return 1
 
 
 def cost(tokens: list[int]) -> tuple[int, int, float]:
