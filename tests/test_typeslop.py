@@ -31,6 +31,8 @@ def test_a_low_score_notes_once_blocks_once_and_never_twice():
     assert "slop.py  1.2/4\n  - verbose (0.90): " in note["hookSpecificOutput"]["additionalContext"]
     assert note["systemMessage"] == note["hookSpecificOutput"]["additionalContext"], "the user must see what the agent sees"
     assert run("PostToolUse", edit, {"h1": LOW})[1] == {}, "a note repeats on every edit"
+    assert "hookSpecificOutput" in run("PostToolUse", [{"event": "check", "hash": "h1", **LOW}], {})[1], \
+        "a score that check already paid for hid the edit note"
 
     stop, block = run("Stop", edit, {})
     assert block["decision"] == "block", "a stop must reuse the edit's score, not re-judge"
@@ -105,17 +107,22 @@ def test_a_file_is_diffed_against_its_own_repo(repo, tmp_path):
     assert typeslop.diff_for(str(tmp_path / "scratch.py")) is None, "a file outside any repo was judged"
 
 
-def test_check_fails_once_per_finding_then_lets_the_kept_code_through(repo, tmp_path):
-    root, _ = repo
+def test_check_judges_the_pushed_commit_and_fails_once_per_finding(repo, tmp_path):
+    root, git = repo
+    git("update-ref", "refs/remotes/origin/HEAD", "HEAD")
     (root / "slop.py").write_text("x = 1\n" * 12)
+    git("add", "slop.py")
+    git("commit", "-q", "-m", "slop")
     diff = typeslop.diff_for(str(root / "slop.py"))
     typeslop.append_jsonl(tmp_path / "typeslop/log.jsonl", [{"event": "PostToolUse", "hash": diff["hash"], **LOW}])
+    (root / "slop.py").write_text("x = 1\n")
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
 
     def check():
-        return subprocess.run([sys.executable, BIN, "check"], cwd=root, capture_output=True, text=True,
+        return subprocess.run([sys.executable, BIN, "check", sha], cwd=root, capture_output=True, text=True,
                               env={**os.environ, "XDG_STATE_HOME": str(tmp_path), "TYPESAFE_API_KEY": "unused"})
     first = check()
-    assert first.returncode == 1 and "slop.py  1.2/4\n  - verbose" in first.stdout, first.stdout + first.stderr
+    assert first.returncode == 1 and "slop.py  1.2/4\n  - verbose" in first.stdout, "an uncommitted fix hid the pushed slop"
     assert check().returncode == 0, "a finding the agent kept failed every push"
 
 

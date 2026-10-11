@@ -35,7 +35,8 @@ Codex, `sed` and other tools write code the hook never sees. To judge every auth
 run the check before each push:
 
 ```
-printf '#!/bin/sh\nexec typeslop check\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+hook="$(git rev-parse --git-path hooks)/pre-push"
+printf '#!/bin/sh\nwhile read -r _ sha _ _; do typeslop check "$sha" || exit 1; done\n' > "$hook" && chmod +x "$hook"
 ```
 
 The push fails once per finding. Fix it, or push again to keep the code. Outside Claude

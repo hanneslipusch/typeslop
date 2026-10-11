@@ -30,6 +30,6 @@ print(f"recall    {hits / sum(slop):.0%}   slop gets flagged\n")
 fired = Counter(n for f in findings for n in f)
 right = Counter(n for f, s in zip(findings, slop, strict=True) if s for n in f)
 for name, n in fired.most_common():
-    print(f"{name:<26} right {right[name]:>3} of {n}")
+    print(f"{name:<26} {right[name]:>3} of {n} on slop")
 calls, tokens, dollars = typeslop.cost([r["input_tokens"] for r in typeslop.read_jsonl(USAGE)])
 print(f"\nJev spend so far: {calls} calls, {tokens:,} input tokens, ${dollars:.2f}")

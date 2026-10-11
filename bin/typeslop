@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """typeslop: a taste check on the code a coding agent writes.
 
-  typeslop check   judge this branch's changed files; exits 1 on a finding it has not shown yet
-  typeslop cost    what Jev has cost so far, from the log
-  typeslop hook    Claude Code hook: reads the event on stdin
+  typeslop check [<commit>]   judge this branch's changes, or a commit's; exits 1 on a finding not shown yet
+  typeslop cost               what Jev has cost so far, from the log
+  typeslop hook               Claude Code hook: reads the event on stdin
 
 Jev scores each changed file's diff. After an edit, the agent gets one note per file.
 At Stop, typeslop sends it back once with the findings, and it must simplify or say why not.
@@ -121,13 +121,13 @@ def toplevel(cwd: str) -> str:
 
 
 @cache
-def merge_base(top: str) -> str:
-    return (git("merge-base", "HEAD", "origin/HEAD", cwd=top) or "").strip() or "HEAD"
+def merge_base(top: str, rev: str = "HEAD") -> str:
+    return (git("merge-base", rev, "origin/HEAD", cwd=top) or "").strip() or rev
 
 
 def diff_for(path: str) -> dict | None:
     """The file's diff against its own repo's merge-base, or None when it is not ours to judge."""
-    if not path.endswith(CODE) or any(g in path for g in GENERATED) or not os.path.isfile(path):
+    if not os.path.isfile(path):
         return None
     # The file's own repo, not the session's: a linked worktree inside the main checkout
     # would otherwise look untracked and be judged whole.
@@ -141,8 +141,12 @@ def diff_for(path: str) -> dict | None:
         return None  # An ignored file is often local config with secrets; never send it.
     else:
         diff = git("diff", "--no-index", "--", "/dev/null", file, cwd=top)
-    lines = (diff or "").count("\n")
-    if not MIN_LINES <= lines <= MAX_LINES:
+    return judgeable(top, file, diff or "")
+
+
+def judgeable(top: str, file: str, diff: str) -> dict | None:
+    lines = diff.count("\n")
+    if not file.endswith(CODE) or any(g in file for g in GENERATED) or not MIN_LINES <= lines <= MAX_LINES:
         return None
     return {"repo": top, "file": file, "diff": diff, "lines": lines,
             "hash": hashlib.sha1(f"{file}{diff}".encode()).hexdigest()[:16]}
@@ -210,7 +214,7 @@ def decide(event: dict, diffs: list[dict], memory: list[dict], verdicts: dict) -
                 errors.append(str(verdict))
                 records.append({**base, "skip": str(verdict)})
                 continue
-        elif d["hash"] in last and not edit and (after_bounce or d["hash"] not in stop_seen):
+        elif d["hash"] in last and (edit or after_bounce or d["hash"] not in stop_seen):
             verdict = {k: last[d["hash"]][k] for k in VERDICT}
         else:
             continue
@@ -260,18 +264,23 @@ def hook() -> None:
         print(json.dumps(output))
 
 
-def check() -> int:
+def check(rev: str | None) -> int:
     top = toplevel(os.getcwd())
     if not top:
         print("typeslop check: not inside a git repository")
         return 1
-    base = merge_base(top)
-    if base == "HEAD":
+    base = merge_base(top, rev or "HEAD")
+    if base == (rev or "HEAD"):
         print("typeslop check: no origin/HEAD, so committed changes are not judged; `git remote set-head origin --auto` sets it")
-    changed = (git("diff", "--name-only", "-z", base, cwd=top) or "") + (git("ls-files", "-z", "--others", "--exclude-standard", cwd=top) or "")
-    diffs = [d for d in (diff_for(os.path.join(top, f)) for f in sorted(set(changed.split("\0")) - {""})) if d]
+    if rev:
+        changed = git("diff", "--name-only", "--diff-filter=d", "-z", base, rev, cwd=top) or ""
+        diffs = [judgeable(top, f, git("diff", base, rev, "--", f, cwd=top) or "") for f in sorted(set(changed.split("\0")) - {""})]
+    else:
+        changed = (git("diff", "--name-only", "-z", base, cwd=top) or "") + (git("ls-files", "-z", "--others", "--exclude-standard", cwd=top) or "")
+        diffs = [diff_for(os.path.join(top, f)) for f in sorted(set(changed.split("\0")) - {""})]
+    diffs = [d for d in diffs if d]
     if not diffs:
-        print(f"typeslop check: no code changes between {base[:10]} and the working tree")
+        print(f"typeslop check: no code changes between {base[:10]} and {rev[:10] if rev else 'the working tree'}")
         return 0
     if provider() is None:
         print(f"typeslop check: {NO_KEY}")
@@ -307,7 +316,7 @@ def cost(tokens: list[int]) -> tuple[int, int, float]:
 def main() -> int:
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "check":
-        return check()
+        return check(sys.argv[2] if len(sys.argv) > 2 else None)
     if command == "cost":
         calls, tokens, dollars = cost([r["tokens"] for r in read_jsonl(LOG) if "tokens" in r])
         print(f"{calls} judgments, {tokens:,} input tokens, ${dollars:.4f}")
