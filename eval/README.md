@@ -3,7 +3,7 @@
 How often typeslop's findings are right. Run it before you change `rubric.json` or the
 thresholds.
 
-[`labels.jsonl`](labels.jsonl) marks 207 diffs as slop or not, with the smells and a reason.
+[`labels.jsonl`](labels.jsonl) marks diffs as slop or not, with the smells and a reason.
 A strict reviewer labelled each one before seeing Jev's answer. The diffs come from two sets:
 
 | set | what it is |

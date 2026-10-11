@@ -1,11 +1,4 @@
-"""The decision on plain data, the diff on real git, and the whole hook on real transcripts.
-
-Each test guards a failure seen in production: an agent sent back twice for one file, or
-again for a finding it already answered; a push gate that could never be passed; a stop that re-paid for a score its edit already
-had; a note repeated on every edit; a dead key that looked like a quiet hook; a linked worktree judged as one untracked whole file; scratch
-files outside any repo judged against whatever repo the shell stood in; a torn transcript
-record that crashed every hook for the rest of its session.
-"""
+"""The decision on plain data, the diff on real git, and the whole hook on real transcripts."""
 
 import importlib.machinery
 import importlib.util

@@ -28,8 +28,6 @@ if sys.version_info < (3, 12):
     sys.exit(f"typeslop needs Python 3.12 or later, found {sys.version.split()[0]}")
 
 BLOCK_BELOW, COMMENTS_FROM, SMELL_FROM = 2.5, 2.0, 0.85
-# Below this Jev confidence, comment prose is a nitpick the agent may keep, and a low score is no finding:
-# in eval/, unsure low scores flagged curated human code more often than agent slop.
 SURE_FROM = 0.6
 VERDICT = ("score", "confidence", "comments", "comments_confidence", "smells")
 MIN_LINES, MAX_LINES = 8, 500
@@ -71,7 +69,6 @@ def ask(file: str, diff: str, timeout: float, rubric: dict = RUBRIC) -> dict:
             with urllib.request.urlopen(request, timeout=deadline - time.monotonic()) as response:
                 return json.load(response)
         except urllib.error.HTTPError as e:
-            # A busy or briefly unavailable host is retried while the budget lasts.
             if e.code in (429, 500, 502, 503, 529) and deadline - time.monotonic() > 1.5:
                 time.sleep(0.5)
                 continue
@@ -255,7 +252,6 @@ def hook() -> None:
     event.setdefault("hook_event_name", "Stop")
     diffs = [d for d in map(diff_for, edited_paths(event)) if d]
     memory = read_jsonl(LOG)
-    # Each diff is judged once; a stop reuses the score its edit already paid for.
     known = {r["hash"] for r in memory if "confidence" in r}
     verdicts = judge_all([d for d in diffs if d["hash"] not in known], timeout=5 if event["hook_event_name"] == "PostToolUse" else 20)
     records, output = decide(event, diffs, memory, verdicts)
@@ -295,7 +291,7 @@ def check() -> int:
         blocked = any(sure and (top, d["file"], name) not in kept for sure, name, _ in findings)
         records.append({"ts": now(), "event": "check", "repo": top, "file": d["file"], "hash": d["hash"],
                         "lines": d["lines"], **verdict, "blocked": blocked})
-        print(f"⚑ {describe(d['file'], verdict, findings)}" if findings else f"✓ {d['file']}  {verdict['score']}/4")
+        print(f"{'⚑' if findings else '✓'} {describe(d['file'], verdict, findings)}")
     append_jsonl(LOG, records)
     if not any(r["blocked"] for r in records):
         return 0
