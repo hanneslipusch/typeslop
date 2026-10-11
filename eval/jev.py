@@ -45,7 +45,6 @@ def ask_all(cases: list[dict], rubric: dict) -> list[dict]:
             print(f"judging {len(missing)} diffs")
         with ThreadPoolExecutor(8) as pool:
             for k, answers in zip(missing, pool.map(lambda c: _call(rubric, c["file"], c["diff"]), missing.values()), strict=True):
-                with _lock:
-                    _cache[k] = answers
-                    typeslop.append_jsonl(CACHE, [{"key": k, "answers": answers}])
+                _cache[k] = answers
+                typeslop.append_jsonl(CACHE, [{"key": k, "answers": answers}])
     return [_cache[k] for k in keys]

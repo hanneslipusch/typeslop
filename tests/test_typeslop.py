@@ -1,11 +1,4 @@
-"""The decision on plain data, the diff on real git, and the whole hook on real transcripts.
-
-Each test guards a failure seen in production: an agent sent back twice for one file, or
-again for a finding it already answered; a stop that re-paid for a score its edit already
-had; a note repeated on every edit; a dead key that looked like a quiet hook; a linked worktree judged as one untracked whole file; scratch
-files outside any repo judged against whatever repo the shell stood in; a torn transcript
-record that crashed every hook for the rest of its session.
-"""
+"""The decision on plain data, the diff on real git, and the whole hook on real transcripts."""
 
 import importlib.machinery
 import importlib.util
@@ -23,9 +16,9 @@ typeslop = importlib.util.module_from_spec(importlib.util.spec_from_loader("type
 loader.exec_module(typeslop)
 
 DIFF = {"repo": "/r", "file": "slop.py", "diff": "+x\n" * 20, "lines": 20, "hash": "h1"}
-LOW = {"score": 1.2, "level": "needs rewrite", "confidence": 0.9, "comments": 0.5, "comments_confidence": 0.9,
+LOW = {"score": 1.2, "confidence": 0.9, "comments": 0.5, "comments_confidence": 0.9,
        "smells": [["verbose", 0.9]]}
-CLEAN = {"score": 3.2, "level": "clean", "confidence": 0.9, "comments": 0.5, "comments_confidence": 0.9, "smells": []}
+CLEAN = {"score": 3.2, "confidence": 0.9, "comments": 0.5, "comments_confidence": 0.9, "smells": []}
 
 
 def run(kind, memory, verdicts, **event):
@@ -35,9 +28,11 @@ def run(kind, memory, verdicts, **event):
 
 def test_a_low_score_notes_once_blocks_once_and_never_twice():
     edit, note = run("PostToolUse", [], {"h1": {**LOW, "tokens": 900}})
-    assert "slop.py  1.2/4 needs rewrite\n  - verbose (0.90): " in note["hookSpecificOutput"]["additionalContext"]
+    assert "slop.py  1.2/4\n  - verbose (0.90): " in note["hookSpecificOutput"]["additionalContext"]
     assert note["systemMessage"] == note["hookSpecificOutput"]["additionalContext"], "the user must see what the agent sees"
     assert run("PostToolUse", edit, {"h1": LOW})[1] == {}, "a note repeats on every edit"
+    assert "hookSpecificOutput" in run("PostToolUse", [{"event": "check", "hash": "h1", **LOW}], {})[1], \
+        "a score that check already paid for hid the edit note"
 
     stop, block = run("Stop", edit, {})
     assert block["decision"] == "block", "a stop must reuse the edit's score, not re-judge"
@@ -110,6 +105,25 @@ def test_a_file_is_diffed_against_its_own_repo(repo, tmp_path):
 
     (tmp_path / "scratch.py").write_text("x = 1\n" * 12)
     assert typeslop.diff_for(str(tmp_path / "scratch.py")) is None, "a file outside any repo was judged"
+
+
+def test_check_judges_the_pushed_commit_and_fails_once_per_finding(repo, tmp_path):
+    root, git = repo
+    git("update-ref", "refs/remotes/origin/HEAD", "HEAD")
+    (root / "slop.py").write_text("x = 1\n" * 12)
+    git("add", "slop.py")
+    git("commit", "-q", "-m", "slop")
+    diff = typeslop.diff_for(str(root / "slop.py"))
+    typeslop.append_jsonl(tmp_path / "typeslop/log.jsonl", [{"event": "PostToolUse", "hash": diff["hash"], **LOW}])
+    (root / "slop.py").write_text("x = 1\n")
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True).stdout.strip()
+
+    def check():
+        return subprocess.run([sys.executable, BIN, "check", sha], cwd=root, capture_output=True, text=True,
+                              env={**os.environ, "XDG_STATE_HOME": str(tmp_path), "TYPESAFE_API_KEY": "unused"})
+    first = check()
+    assert first.returncode == 1 and "slop.py  1.2/4\n  - verbose" in first.stdout, "an uncommitted fix hid the pushed slop"
+    assert check().returncode == 0, "a finding the agent kept failed every push"
 
 
 def hook(event, state):
