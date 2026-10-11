@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """typeslop: a taste check on the code a coding agent writes.
 
-  typeslop check [<commit>]   judge this branch's changes, or a commit's; exits 1 on a finding not shown yet
+  typeslop check [<commit>]   judge the branch, or a commit; fails once for each new finding
   typeslop cost               what Jev has cost so far, from the log
   typeslop hook               Claude Code hook: reads the event on stdin
 
@@ -271,14 +271,12 @@ def check(rev: str | None) -> int:
         return 1
     base = merge_base(top, rev or "HEAD")
     if base == (rev or "HEAD"):
-        print("typeslop check: no origin/HEAD, so committed changes are not judged; `git remote set-head origin --auto` sets it")
-    if rev:
-        changed = git("diff", "--name-only", "--diff-filter=d", "-z", base, rev, cwd=top) or ""
-        diffs = [judgeable(top, f, git("diff", base, rev, "--", f, cwd=top) or "") for f in sorted(set(changed.split("\0")) - {""})]
-    else:
-        changed = (git("diff", "--name-only", "-z", base, cwd=top) or "") + (git("ls-files", "-z", "--others", "--exclude-standard", cwd=top) or "")
-        diffs = [diff_for(os.path.join(top, f)) for f in sorted(set(changed.split("\0")) - {""})]
-    diffs = [d for d in diffs if d]
+        print("typeslop check: no origin/HEAD, so only uncommitted changes count. Fix: git remote set-head origin --auto")
+    span = [base, rev] if rev else [base]
+    changed = (git("diff", "--name-only", "--diff-filter=d", "-z", *span, cwd=top) or "").split("\0")
+    untracked = [] if rev else (git("ls-files", "-z", "--others", "--exclude-standard", cwd=top) or "").split("\0")
+    diffs = [judgeable(top, f, git("diff", *span, "--", f, cwd=top) or "") for f in changed if f]
+    diffs = [d for d in diffs + [diff_for(os.path.join(top, f)) for f in untracked if f] if d]
     if not diffs:
         print(f"typeslop check: no code changes between {base[:10]} and {rev[:10] if rev else 'the working tree'}")
         return 0
@@ -304,7 +302,7 @@ def check(rev: str | None) -> int:
     append_jsonl(LOG, records)
     if not any(r["blocked"] for r in records):
         return 0
-    print("\nFix each finding, or say why the code stays: the next check lets a finding it already showed through.")
+    print("\nFix each finding. To keep the code, run the check again.")
     return 1
 
 

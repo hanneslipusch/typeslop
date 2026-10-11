@@ -31,16 +31,19 @@ Then in Claude Code:
 
 To judge your current branch, ask Claude to run `typeslop check`.
 
-Codex, `sed` and other tools write code the hook never sees. To judge every author's code,
-run the check before each push:
+The hook only sees Claude's own edits. To also judge code from Codex, scripts or people,
+check each push:
 
 ```
-hook="$(git rev-parse --git-path hooks)/pre-push"
-printf '#!/bin/sh\nwhile read -r _ sha _ _; do typeslop check "$sha" || exit 1; done\n' > "$hook" && chmod +x "$hook"
+cat > "$(git rev-parse --git-path hooks)/pre-push" <<'EOF'
+#!/bin/sh
+while read -r _ sha _ _; do typeslop check "$sha" || exit 1; done
+EOF
+chmod +x "$(git rev-parse --git-path hooks)/pre-push"
 ```
 
-The push fails once per finding. Fix it, or push again to keep the code. Outside Claude
-Code, put `bin/typeslop` from a clone of this repo on your `PATH`.
+A push fails once per finding: fix it, or push again to keep the code. Pushes from outside
+Claude Code need `bin/typeslop` on your `PATH`.
 
 ## How it works
 
