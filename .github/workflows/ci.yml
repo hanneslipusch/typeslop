@@ -8,6 +8,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          enable-cache: false
       - run: uv run --no-project --python 3.12 --with pytest pytest -q
-      - run: uv run --no-project --python 3.14 --with pytest pytest -q
+      - run: uv run --no-project --python 3.15 --with pytest pytest -q
