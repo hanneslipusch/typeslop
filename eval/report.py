@@ -9,6 +9,7 @@ it with the shipped rubric.json; only its uncached diffs are paid for.
 import json
 import re
 import sys
+import urllib.error
 import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -23,9 +24,13 @@ def commit_diff(source: str) -> str:
     repo, sha = source.split("@")
     path = DATA / "commits" / f"{repo.replace('/', '_')}@{sha}.diff"
     if not path.exists():
-        with urllib.request.urlopen(f"https://github.com/{repo}/commit/{sha}.diff") as response:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(response.read())
+        try:
+            with urllib.request.urlopen(f"https://github.com/{repo}/commit/{sha}.diff") as response:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(response.read())
+        except urllib.error.HTTPError as e:
+            raise SystemExit(f"github.com/{repo}/commit/{sha}.diff answered {e.code}; "
+                             "a 404 means the commit is gone: drop its labels") from e
     return path.read_text()
 
 

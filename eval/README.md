@@ -12,10 +12,8 @@ A strict reviewer labelled each one before seeing Jev's answer. The diffs come f
 | `slop` | about 200 diffs from unreviewed Claude Code commits |
 
 ```
-uv run eval/build.py good          # once; sets live in ~/.cache/typeslop-eval
-uv run eval/build.py slop          # about 30 minutes, GitHub rate limits
 uv run eval/report.py [rubric.json]   # needs a Jev key; about $0.02 per new rubric, cached after
 ```
 
-Who wrote the code says little: about a fifth of `good` and a third of `slop` is slop. The
-`slop` set comes from a GitHub search, so a fresh build picks other commits than the labels.
+The first run fetches each labelled commit's diff from GitHub into `~/.cache/typeslop-eval`.
+Who wrote the code says little: about a fifth of `good` and a third of `slop` is slop.

@@ -189,7 +189,7 @@ def edited_paths(event: dict) -> list[str]:
         if record.get("type") == "assistant":
             paths |= {block["input"].get("file_path", "") for block in record.get("message", {}).get("content", [])
                       if isinstance(block, dict) and block.get("type") == "tool_use"
-                      and block.get("name") in ("Write", "Edit", "MultiEdit")}
+                      and block.get("name") in ("Write", "Edit")}
     return sorted(paths)
 
 
