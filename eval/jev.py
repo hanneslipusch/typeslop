@@ -1,7 +1,7 @@
 """Jev with a disk cache.
 
-Cached answers are keyed by (rubric, file, diff), so re-reporting costs nothing and only a
-changed rubric pays for new calls. Every paid call appends its token usage to usage.jsonl.
+Cached answers are keyed by (model, rubric, file, diff), so re-reporting costs nothing and only a
+changed model or rubric pays for new calls. Every paid call appends its token usage to usage.jsonl.
 """
 
 import hashlib
@@ -19,12 +19,13 @@ _loader = importlib.machinery.SourceFileLoader("typeslop", str(Path(__file__).re
 typeslop = importlib.util.module_from_spec(importlib.util.spec_from_loader("typeslop", _loader))
 _loader.exec_module(typeslop)
 
+MODEL = typeslop.PROVIDERS[0][2]  # Every provider pins this one release under its own name.
 _lock = threading.Lock()
 _cache = {r["key"]: r["answers"] for r in typeslop.read_jsonl(CACHE)}
 
 
 def _key(rubric: dict, file: str, diff: str) -> str:
-    return hashlib.sha1(json.dumps([rubric, file, diff, "diff"]).encode()).hexdigest()
+    return hashlib.sha1(json.dumps([MODEL, rubric, file, diff, "diff"]).encode()).hexdigest()
 
 
 def _call(rubric: dict, file: str, diff: str) -> dict:

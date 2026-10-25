@@ -36,10 +36,12 @@ GENERATED = (".gen.", "generated", "__snapshots__", "migrations/")
 RUBRIC = json.loads((Path(__file__).resolve().parent.parent / "rubric.json").read_text())
 LOG = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "typeslop/log.jsonl"
 # Every host serves TypeSafe's own wire format; the first key found picks the host.
+# Each pins the same Jev release: an alias moves on every release, and the thresholds are tuned
+# on one. https://docs.typesafe.ai/models
 PROVIDERS = [
-    ("TYPESAFE_API_KEY", "https://api.typesafe.ai", "jev-latest"),
-    ("AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh/typesafe", "typesafe-ai/jev"),
-    ("OPENROUTER_API_KEY", "https://openrouter.ai/api", "~typesafe/jev-latest"),
+    ("TYPESAFE_API_KEY", "https://api.typesafe.ai", "jev-1.14.0"),
+    ("AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh/typesafe", "typesafe-ai/jev-1.14.0"),
+    ("OPENROUTER_API_KEY", "https://openrouter.ai/api", "typesafe/jev-1.14"),
 ]
 PRICE_PER_INPUT_TOKEN = 0.042e-6  # Output tokens are free: https://docs.typesafe.ai/models
 NO_KEY = "no API key: set TYPESAFE_API_KEY (console.typesafe.ai/keys), AI_GATEWAY_API_KEY or OPENROUTER_API_KEY"
